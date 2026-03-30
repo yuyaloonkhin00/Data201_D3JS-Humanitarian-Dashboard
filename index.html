@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Humanitarian Data Dashboard</title>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+
+  <style>
+    /* ===== BASIC PAGE STYLING ===== */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f4f6f9;
+      color: #222;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    /* Filter section */
+    .controls {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    select {
+      padding: 8px 12px;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+
+    /* ===== KPI CARD LAYOUT ===== */
+    /* Changed to 5 columns for the 5 required KPIs */
+    .kpi-container {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr); 
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+
+    .kpi-title {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-size: 24px; /* Slightly smaller to fit larger numbers */
+      font-weight: bold;
+    }
+
+    /* ===== CHART LAYOUT ===== */
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .chart-box {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+
+    .chart-box.full-width {
+      grid-column: 1 / span 2;
+    }
+
+    .chart-title {
+      font-size: 18px;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+    }
+
+    /* ===== DATA TABLE STYLING ===== */
+    .table-container {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+    th {
+      background-color: #f8f9fa;
+      cursor: pointer;
+    }
+    th:hover {
+      background-color: #e2e6ea;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.75);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #999;
+    }
+
+    .axis text {
+      font-size: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .kpi-container {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .charts {
+        grid-template-columns: 1fr;
+      }
+      .chart-box.full-width {
+        grid-column: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Humanitarian Operations Dashboard</h1>
+
+  <div class="controls">
+    <div class="filter-group">
+      <label for="countryFilter"><strong>Country:</strong></label>
+      <select id="countryFilter"><option value="All">All</option></select>
+    </div>
+    <div class="filter-group">
+      <label for="regionFilter"><strong>Region:</strong></label>
+      <select id="regionFilter"><option value="All">All</option></select>
+    </div>
+    <div class="filter-group">
+      <label for="sectorFilter"><strong>Sector:</strong></label>
+      <select id="sectorFilter"><option value="All">All</option></select>
+    </div>
+    <div class="filter-group">
+      <label for="orgFilter"><strong>Organization:</strong></label>
+      <select id="orgFilter"><option value="All">All</option></select>
+    </div>
+  </div>
+
+  <div class="kpi-container">
+    <div class="kpi-card">
+      <div class="kpi-title">Targeted</div>
+      <div class="kpi-value" id="kpiTargeted">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Reached</div>
+      <div class="kpi-value" id="kpiReached">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Req. Funding ($)</div>
+      <div class="kpi-value" id="kpiRequired">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Rec. Funding ($)</div>
+      <div class="kpi-value" id="kpiReceived">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Funding Gap (%)</div>
+      <div class="kpi-value" id="kpiGap">0%</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <div class="chart-title">Targeted vs Reached by Sector</div>
+      <svg id="barChart" viewBox="0 0 500 320"></svg>
+    </div>
+
+    <div class="chart-box">
+      <div class="chart-title">Incidents by Sector</div>
+      <svg id="pieChart" viewBox="0 0 500 320"></svg>
+    </div>
+
+    <div class="chart-box full-width">
+      <div class="chart-title">Monthly Funding Received</div>
+      <svg id="lineChart" viewBox="0 0 900 300"></svg>
+    </div>
+
+    <div class="chart-box full-width">
+      <div class="chart-title">Top 10 Locations by Funding Gap ($)</div>
+      <svg id="rankingChart" viewBox="0 0 900 300"></svg>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <div class="chart-title">Detailed Records (Click Headers to Sort)</div>
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th data-sort="date">Date ↕</th>
+          <th data-sort="site">Site ↕</th>
+          <th data-sort="sector">Sector ↕</th>
+          <th data-sort="people_in_need">Targeted ↕</th>
+          <th data-sort="people_reached">Reached ↕</th>
+          <th data-sort="funding_gap">Funding Gap ($) ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        </tbody>
+    </table>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const tooltip = d3.select("#tooltip");
+
+    // Variables to handle table sorting
+    let currentSortColumn = "date";
+    let sortAscending = false;
+
+    // =========================================================
+    // 2) LOAD CSV FILE
+    // =========================================================
+    d3.csv("humanitarian_response_dataset.csv").then(data => {
+
+      // =======================================================
+      // 3) CLEAN / CONVERT DATA TYPES
+      // =======================================================
+      data.forEach(d => {
+        d.date = new Date(d.date);
+        d.people_in_need = +d.people_in_need;
+        d.people_reached = +d.people_reached;
+        d.funding_required_usd = +d.funding_required_usd;
+        d.funding_received_usd = +d.funding_received_usd;
+        d.incidents_reported = +d.incidents_reported;
+        
+        // Calculate the funding gap for each row
+        d.funding_gap = d.funding_required_usd - d.funding_received_usd;
+        if (d.funding_gap < 0) d.funding_gap = 0; // Prevent negative gaps
+      });
+
+      // =======================================================
+      // 4) POPULATE MULTIPLE DROPDOWNS
+      // =======================================================
+      function populateDropdown(selectId, dataKey) {
+        const uniqueValues = Array.from(new Set(data.map(d => d[dataKey]))).sort();
+        const selectElement = d3.select(selectId);
+        uniqueValues.forEach(val => {
+          selectElement.append("option").attr("value", val).text(val);
+        });
+      }
+
+      populateDropdown("#countryFilter", "country");
+      populateDropdown("#regionFilter", "state_region");
+      populateDropdown("#sectorFilter", "sector");
+      populateDropdown("#orgFilter", "partner");
+
+      // =======================================================
+      // 5) MAIN DASHBOARD UPDATE FUNCTION
+      // =======================================================
+      function updateDashboard() {
+        // Get current values from all 4 filters
+        const country = d3.select("#countryFilter").property("value");
+        const region = d3.select("#regionFilter").property("value");
+        const sector = d3.select("#sectorFilter").property("value");
+        const org = d3.select("#orgFilter").property("value");
+
+        // Filter the dataset based on selections
+        let filteredData = data.filter(d => {
+          return (country === "All" || d.country === country) &&
+                 (region === "All" || d.state_region === region) &&
+                 (sector === "All" || d.sector === sector) &&
+                 (org === "All" || d.partner === org);
+        });
+
+        // Update visual parts
+        updateKPIs(filteredData);
+        drawGroupedBarChart(filteredData);
+        drawPieChart(filteredData);
+        drawLineChart(filteredData);
+        drawRankingChart(filteredData);
+        updateTable(filteredData);
+      }
+
+      // =======================================================
+      // 6) UPDATE KPI CARDS
+      // =======================================================
+      function updateKPIs(filteredData) {
+        const totalTargeted = d3.sum(filteredData, d => d.people_in_need);
+        const totalReached = d3.sum(filteredData, d => d.people_reached);
+        const totalRequired = d3.sum(filteredData, d => d.funding_required_usd);
+        const totalReceived = d3.sum(filteredData, d => d.funding_received_usd);
+        
+        // Calculate gap percentage
+        const gapPercentage = totalRequired > 0 
+          ? ((totalRequired - totalReceived) / totalRequired) * 100 
+          : 0;
+
+        d3.select("#kpiTargeted").text(d3.format(",")(totalTargeted));
+        d3.select("#kpiReached").text(d3.format(",")(totalReached));
+        d3.select("#kpiRequired").text(d3.format("$,.0f")(totalRequired));
+        d3.select("#kpiReceived").text(d3.format("$,.0f")(totalReceived));
+        d3.select("#kpiGap").text(d3.format(".1f")(gapPercentage) + "%");
+      }
+
+      // =======================================================
+      // 7) DRAW GROUPED BAR CHART: TARGETED VS REACHED
+      // =======================================================
+      function drawGroupedBarChart(filteredData) {
+        const svg = d3.select("#barChart");
+        svg.selectAll("*").remove();
+
+        const margin = { top: 20, right: 20, bottom: 60, left: 60 };
+        const width = 500 - margin.left - margin.right;
+        const height = 320 - margin.top - margin.bottom;
+
+        const g = svg.append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Group by Sector, then calculate sums for Targeted and Reached
+        const sectorData = Array.from(
+          d3.rollup(
+            filteredData,
+            v => ({
+              targeted: d3.sum(v, d => d.people_in_need),
+              reached: d3.sum(v, d => d.people_reached)
+            }),
+            d => d.sector
+          ),
+          ([sector, values]) => ({ sector, ...values })
+        );
+
+        // X0 Scale: Main categories (Sectors)
+        const x0 = d3.scaleBand()
+          .domain(sectorData.map(d => d.sector))
+          .range([0, width])
+          .paddingInner(0.2);
+
+        // X1 Scale: Sub-categories (Targeted vs Reached)
+        const subgroups = ["targeted", "reached"];
+        const x1 = d3.scaleBand()
+          .domain(subgroups)
+          .range([0, x0.bandwidth()])
+          .padding(0.05);
+
+        // Y Scale: Numeric values
+        const maxVal = d3.max(sectorData, d => Math.max(d.targeted, d.reached)) || 0;
+        const y = d3.scaleLinear()
+          .domain([0, maxVal])
+          .nice()
+          .range([height, 0]);
+
+        // Colors
+        const color = d3.scaleOrdinal()
+          .domain(subgroups)
+          .range(["#90cdf4", "#2b6cb0"]); // Light blue vs Dark blue
+
+        // Draw Axes
+        g.append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0,${height})`)
+          .call(d3.axisBottom(x0));
+
+        g.append("g")
+          .attr("class", "axis")
+          .call(d3.axisLeft(y).ticks(5, "s"));
+
+        // Draw Bars
+        const sectorGroups = g.selectAll("g.sectorGroup")
+          .data(sectorData)
+          .enter()
+          .append("g")
+          .attr("transform", d => `translate(${x0(d.sector)},0)`);
+
+        sectorGroups.selectAll("rect")
+          .data(d => subgroups.map(key => ({ key: key, value: d[key], sector: d.sector })))
+          .enter()
+          .append("rect")
+          .attr("x", d => x1(d.key))
+          .attr("y", d => y(d.value))
+          .attr("width", x1.bandwidth())
+          .attr("height", d => height - y(d.value))
+          .attr("fill", d => color(d.key))
+          .on("mouseover", function(event, d) {
+            d3.select(this).attr("opacity", 0.7);
+            tooltip
+              .style("opacity", 1)
+              .html(`<strong>${d.sector}</strong><br>${d.key.toUpperCase()}: ${d3.format(",")(d.value)}`)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+          })
+          .on("mouseout", function() {
+            d3.select(this).attr("opacity", 1);
+            tooltip.style("opacity", 0);
+          });
+      }
+
+      // =======================================================
+      // 8) DRAW PIE CHART: INCIDENTS BY SECTOR
+      // =======================================================
+      function drawPieChart(filteredData) {
+        const svg = d3.select("#pieChart");
+        svg.selectAll("*").remove();
+
+        const width = 500;
+        const height = 320;
+        const radius = Math.min(width, height) / 2 - 40;
+
+        const g = svg.append("g")
+          .attr("transform", `translate(${width / 2},${height / 2})`);
+
+        // Group by sector, sum up incidents
+        const incidentData = Array.from(
+          d3.rollup(
+            filteredData,
+            v => d3.sum(v, d => d.incidents_reported),
+            d => d.sector
+          ),
+          ([sector, incidents]) => ({ sector, incidents })
+        ).filter(d => d.incidents > 0); // Only keep sectors with > 0 incidents
+
+        const pie = d3.pie().value(d => d.incidents);
+        const arc = d3.arc().innerRadius(0).outerRadius(radius);
+        const color = d3.scaleOrdinal(d3.schemeSet3);
+
+        g.selectAll("path")
+          .data(pie(incidentData))
+          .enter()
+          .append("path")
+          .attr("d", arc)
+          .attr("fill", (d, i) => color(i))
+          .attr("stroke", "white")
+          .style("stroke-width", "2px")
+          .on("mouseover", function(event, d) {
+            tooltip
+              .style("opacity", 1)
+              .html(`<strong>${d.data.sector}</strong><br>Incidents: ${d.data.incidents}`)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+          })
+          .on("mouseout", function() {
+            tooltip.style("opacity", 0);
+          });
+
+        g.selectAll("text")
+          .data(pie(incidentData))
+          .enter()
+          .append("text")
+          .attr("transform", d => `translate(${arc.centroid(d)})`)
+          .attr("text-anchor", "middle")
+          .attr("font-size", "11px")
+          .text(d => d.data.sector);
+      }
+
+      // =======================================================
+      // 9) DRAW LINE CHART: MONTHLY FUNDING TREND
+      // =======================================================
+      function drawLineChart(filteredData) {
+        const svg = d3.select("#lineChart");
+        svg.selectAll("*").remove();
+
+        const margin = { top: 20, right: 30, bottom: 50, left: 60 };
+        const width = 900 - margin.left - margin.right;
+        const height = 300 - margin.top - margin.bottom;
+
+        const g = svg.append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Rollup funding received by month
+        const monthlyData = Array.from(
+          d3.rollup(
+            filteredData,
+            v => d3.sum(v, d => d.funding_received_usd),
+            d => d3.timeMonth(d.date)
+          ),
+          ([month, funding]) => ({ month, funding })
+        ).sort((a, b) => a.month - b.month);
+
+        const x = d3.scaleTime()
+          .domain(d3.extent(monthlyData, d => d.month))
+          .range([0, width]);
+
+        const y = d3.scaleLinear()
+          .domain([0, d3.max(monthlyData, d => d.funding) || 0])
+          .nice()
+          .range([height, 0]);
+
+        const line = d3.line()
+          .x(d => x(d.month))
+          .y(d => y(d.funding));
+
+        g.append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0,${height})`)
+          .call(d3.axisBottom(x).ticks(6).tickFormat(d3.timeFormat("%b %Y")));
+
+        g.append("g")
+          .attr("class", "axis")
+          .call(d3.axisLeft(y).ticks(5, "s"));
+
+        g.append("path")
+          .datum(monthlyData)
+          .attr("fill", "none")
+          .attr("stroke", "#38a169")
+          .attr("stroke-width", 3)
+          .attr("d", line);
+
+        g.selectAll("circle")
+          .data(monthlyData)
+          .enter()
+          .append("circle")
+          .attr("cx", d => x(d.month))
+          .attr("cy", d => y(d.funding))
+          .attr("r", 5)
+          .attr("fill", "#38a169")
+          .on("mouseover", function(event, d) {
+            d3.select(this).attr("r", 8);
+            tooltip
+              .style("opacity", 1)
+              .html(`<strong>${d3.timeFormat("%b %Y")(d.month)}</strong><br>Received: ${d3.format("$,.0f")(d.funding)}`)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+          })
+          .on("mouseout", function() {
+            d3.select(this).attr("r", 5);
+            tooltip.style("opacity", 0);
+          });
+      }
+
+      // =======================================================
+      // 10) DRAW RANKING CHART: TOP 10 LOCATIONS BY FUNDING GAP
+      // =======================================================
+      function drawRankingChart(filteredData) {
+        const svg = d3.select("#rankingChart");
+        svg.selectAll("*").remove();
+
+        const margin = { top: 20, right: 30, bottom: 40, left: 180 };
+        const width = 900 - margin.left - margin.right;
+        const height = 300 - margin.top - margin.bottom;
+
+        const g = svg.append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Group by Site and sum the funding gap
+        let siteGaps = Array.from(
+          d3.rollup(
+            filteredData,
+            v => d3.sum(v, d => d.funding_gap),
+            d => d.site
+          ),
+          ([site, gap]) => ({ site, gap })
+        );
+
+        // Sort descending and grab Top 10
+        siteGaps.sort((a, b) => b.gap - a.gap);
+        siteGaps = siteGaps.slice(0, 10);
+
+        // X scale (numeric gap)
+        const x = d3.scaleLinear()
+          .domain([0, d3.max(siteGaps, d => d.gap) || 0])
+          .nice()
+          .range([0, width]);
+
+        // Y scale (categorical site name)
+        const y = d3.scaleBand()
+          .domain(siteGaps.map(d => d.site))
+          .range([0, height])
+          .padding(0.2);
+
+        // Axes
+        g.append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0,${height})`)
+          .call(d3.axisBottom(x).ticks(5, "s"));
+
+        g.append("g")
+          .attr("class", "axis")
+          .call(d3.axisLeft(y));
+
+        // Horizontal Bars
+        g.selectAll("rect")
+          .data(siteGaps)
+          .enter()
+          .append("rect")
+          .attr("x", 0)
+          .attr("y", d => y(d.site))
+          .attr("width", d => x(d.gap))
+          .attr("height", y.bandwidth())
+          .attr("fill", "#e53e3e") // Red to indicate a negative "gap"
+          .on("mouseover", function(event, d) {
+            d3.select(this).attr("fill", "#c53030");
+            tooltip
+              .style("opacity", 1)
+              .html(`<strong>${d.site}</strong><br>Gap: ${d3.format("$,.0f")(d.gap)}`)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+          })
+          .on("mouseout", function() {
+            d3.select(this).attr("fill", "#e53e3e");
+            tooltip.style("opacity", 0);
+          });
+      }
+
+      // =======================================================
+      // 11) UPDATE DATA TABLE
+      // =======================================================
+      function updateTable(filteredData) {
+        const tbody = d3.select("#dataTable tbody");
+        tbody.selectAll("*").remove();
+
+        // Make a copy of data to sort
+        let sortedData = [...filteredData];
+
+        // Sort data based on clicked column
+        sortedData.sort((a, b) => {
+          let valA = a[currentSortColumn];
+          let valB = b[currentSortColumn];
+          
+          if (valA < valB) return sortAscending ? -1 : 1;
+          if (valA > valB) return sortAscending ? 1 : -1;
+          return 0;
+        });
+
+        // Limit to top 15 rows
+        sortedData = sortedData.slice(0, 15);
+
+        // Append rows
+        const rows = tbody.selectAll("tr")
+          .data(sortedData)
+          .enter()
+          .append("tr");
+
+        rows.append("td").text(d => d3.timeFormat("%Y-%m-%d")(d.date));
+        rows.append("td").text(d => d.site);
+        rows.append("td").text(d => d.sector);
+        rows.append("td").text(d => d3.format(",")(d.people_in_need));
+        rows.append("td").text(d => d3.format(",")(d.people_reached));
+        rows.append("td").text(d => d3.format("$,.2f")(d.funding_gap));
+      }
+
+      // =======================================================
+      // 12) EVENT LISTENERS
+      // =======================================================
+      // Listen for dropdown changes
+      d3.selectAll("select").on("change", updateDashboard);
+
+      // Listen for table header clicks for sorting
+      d3.selectAll("th").on("click", function() {
+        // Find which column was clicked from the data-sort attribute
+        const clickedCol = d3.select(this).attr("data-sort");
+        
+        // If same column is clicked, toggle order. If new column, default to descending.
+        if (currentSortColumn === clickedCol) {
+          sortAscending = !sortAscending;
+        } else {
+          currentSortColumn = clickedCol;
+          sortAscending = false; 
+        }
+        updateDashboard();
+      });
+
+      // =======================================================
+      // 13) INITIAL DRAW
+      // =======================================================
+      updateDashboard();
+
+    }).catch(error => {
+      console.error("Error loading CSV:", error);
+      alert("Could not load humanitarian_response_dataset.csv. Please run this using a local server.");
+    });
+  </script>
+</body>
+</html>
